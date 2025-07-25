@@ -1,9 +1,17 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { User } from './entities/user.entity';
 import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { HashingService } from 'src/common/hashing/hashing.service';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdatePasswordDto } from './dto/update-password.dto';
 
 @Injectable()
 export class UserService {
@@ -13,15 +21,28 @@ export class UserService {
     private readonly hashngService: HashingService,
   ) {}
 
-  async create(dto: CreateUserDto) {
-    const exists = await this.userRepository.exists({
-      where: {
-        email: dto.email,
-      },
+  async failIfEmailExists(email: string) {
+    const exists = await this.userRepository.existsBy({
+      email,
     });
     if (exists) {
       throw new ConflictException('E-mail já existe');
     }
+  }
+
+  async findOneByOrFail(userData: Partial<User>) {
+    const user = await this.userRepository.findOneBy(userData);
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    return user;
+  }
+
+  async create(dto: CreateUserDto) {
+    await this.failIfEmailExists(dto.email);
+
     const hashedPassword = await this.hashngService.hash(dto.password);
     const newUser: CreateUserDto = {
       name: dto.name,
@@ -40,6 +61,42 @@ export class UserService {
 
   findById(id: string) {
     return this.userRepository.findOneBy({ id });
+  }
+
+  async update(id: string, dto: UpdateUserDto) {
+    if (!dto.name && !dto.email) {
+      throw new BadRequestException('Dados inválidos');
+    }
+
+    const user = await this.findOneByOrFail({ id });
+
+    user.name = dto.name ?? user.name;
+
+    //Está querendo mudar e-mail
+    if (dto.email && dto.email !== user.email) {
+      await this.failIfEmailExists(dto.email);
+      user.email = dto.email;
+      user.forceLogout = true;
+    }
+    return this.save(user);
+  }
+
+  async updatePassword(id: string, dto: UpdatePasswordDto) {
+    const user = await this.findOneByOrFail({ id });
+
+    const isCurrentPasswordValid = await this.hashngService.compare(
+      dto.currentPassword,
+      user.password,
+    );
+
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('Senha atual inválida');
+    }
+
+    user.password = await this.hashngService.hash(dto.newPassword);
+    user.forceLogout = true;
+
+    return this.save(user);
   }
 
   save(user: User) {
