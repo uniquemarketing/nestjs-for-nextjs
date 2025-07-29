@@ -1,5 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards, Patch } from '@nestjs/common';
-import { CustomParseIntPipe } from 'src/common/pipes/custom-parse-int-pipe';
+import { Body, Controller, Get, Post, Req, UseGuards, Patch, Delete } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ConfigService } from '@nestjs/config';
 import { UserService } from './user.service';
@@ -19,10 +18,10 @@ export class UserController {
   ) {}
 
   @UseGuards(JwtAuthGuard)
-  @Get(':id')
-  findOne(@Req() req: AuthenticatedRequest, @Param('id', CustomParseIntPipe) id: number) {
-    console.log(req.user.id);
-    return `Olá do controller do user #${id}`;
+  @Get('me')
+  async findOne(@Req() req: AuthenticatedRequest) {
+    const user = await this.userService.findOneByOrFail({ id: req.user.id });
+    return new UserResponseDto(user);
   }
 
   @Post()
@@ -43,6 +42,13 @@ export class UserController {
   @Patch('me/password')
   async updatePassword(@Req() req: AuthenticatedRequest, @Body() dto: UpdatePasswordDto) {
     const user = await this.userService.updatePassword(req.user.id, dto);
+    return new UserResponseDto(user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('me')
+  async remove(@Req() req: AuthenticatedRequest) {
+    const user = await this.userService.remove(req.user.id);
     return new UserResponseDto(user);
   }
 }
